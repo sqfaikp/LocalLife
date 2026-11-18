@@ -1,0 +1,61 @@
+######################
+# 构建产物
+######################
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+out/
+bin/
+*.class
+*.jar
+!**/maven-wrapper.jar
+
+######################
+# IDE
+######################
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+.settings/
+.classpath
+.project
+.apt_generated
+.factorypath
+.springBeans
+.sts4-cache
+HELP.md
+
+######################
+# 本地配置（含密码，绝对不要提交）
+######################
+application-local.yaml
+application-local.yml
+application-local.properties
+*-local.properties
+
+######################
+# 本地运行环境（Redis 压缩包、用户上传的图片）
+######################
+tools/redis-5.0.14.1/
+upload/
+
+######################
+# 压测产物
+######################
+*.log
+jmeter.log
+boot*.log
+tools/tokens.csv
+tools/result.jtl
+tools/report/
+tools/*.bak
+tools/backup/
+
+######################
+# 系统垃圾
+######################
+.DS_Store
+Thumbs.db

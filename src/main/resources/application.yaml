@@ -1,0 +1,84 @@
+server:
+  port: 8081
+spring:
+  application:
+    name: locallife
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/locallife?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai&characterEncoding=utf8&useUnicode=true
+    username: root
+    # 本地开发用密码，仅本机 MySQL 有效，不是任何外部账号的密码
+    password: 20210623
+  redis:
+    host: 127.0.0.1
+    port: 6380   # 项目自带的 Redis 5.0.14（tools/redis-5.0.14.1），支持 Stream
+    # 该实例未设置密码，故这里不配置 password
+    lettuce:
+      pool:
+        max-active: 10
+        max-idle: 10
+        min-idle: 1
+        time-between-eviction-runs: 10s
+  jackson:
+    default-property-inclusion: non_null # JSON处理时忽略非空字段
+  # ========== RabbitMQ（2026-11-07 新增，把异步下单从 Redis Stream 换过来）==========
+  # 第一版只配了连接信息，保证「能发能收」。
+  # 第二版（2026-11-07 晚）补上可靠性 L1 的配置：confirm / return / 手动 ack / prefetch / 本地重试。
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: admin
+    password: admin
+    virtual-host: /
+    # 默认超时 60 秒！网络不通时 convertAndSend 会卡 60 秒才抛异常，秒杀接口直接废掉。
+    # 改成 3 秒，宁可快速失败让用户重试。
+    connection-timeout: 3000
+    # 心跳探测，用于发现「假死连接」（网线拔了但 TCP 没收到 FIN）
+    requested-heartbeat: 30
+    # 连接缓存。默认 channel 只缓存 25 个 —— 1000 并发时所有请求抢 25 个 channel，
+    # 抢不到就排队等，这是 MQ 版平均响应从 98ms 涨到 598ms 的主要原因。
+    # 调到 200（和 Tomcat 默认最大线程数对齐）之后延迟明显下降。
+    cache:
+      channel:
+        size: 200
+
+    # ========== 生产端可靠性（2026-11-07 第二轮新增）==========
+    # 消息到达【交换机】时回调 ConfirmCallback。
+    # correlated 表示会把 CorrelationData 带回来，这样失败时能知道是哪一单。
+    publisher-confirm-type: correlated
+    # 消息到了交换机但【路由不到队列】（routingKey 写错、没绑定）时回调 ReturnsCallback。
+    publisher-returns: true
+
+    template:
+      # 与 publisher-returns 配套。不设 true 的话，路由失败根本不会触发回调 —— 白配。
+      mandatory: true
+
+    # ========== 消费端可靠性（2026-11-07 第二轮新增）==========
+    listener:
+      simple:
+        # 手动 ack。默认 AUTO 模式下方法抛异常会 nack(requeue=true) 回队列头，
+        # 被同一个消费者立刻再取到，形成死循环烧 CPU。
+        # 改成 manual 之后，由 SeckillOrderConsumer 自己决定 ack 还是 nack。
+        acknowledge-mode: manual
+        # 每次只预取 1 条。不设的话一个消费者可能一次拿走几百条，
+        # 其他消费者空转，负载严重不均。
+        prefetch: 1
+        # ⚠️ 注意：本地重试（retry.enabled）在 MANUAL 模式下【不要开】。
+        # 原因：retry 是靠拦截器在方法外层循环重试的。3 次都失败后异常会抛回容器，
+        # 而 MANUAL 模式下容器【不会】自动 nack —— 消息会一直挂着 unacked，
+        # 占满 prefetch 名额，消费者就此假死。
+        # 所以重试逻辑我们写在 SeckillOrderConsumer 内部自己控制：
+        # 成功/DuplicateKey → ack；其余异常 → nack(requeue=false) → 进死信队列人工重放。
+        #
+        # 旧配置（第一版写的，现停用，别再打开）：
+        # retry:
+        #   enabled: true
+        #   max-attempts: 3
+        #   initial-interval: 1000
+mybatis-plus:
+  type-aliases-package: com.locallife.entity # 别名扫描包
+logging:
+  level:
+    com.locallife: debug
+  pattern:
+    dateformat: mm:ss.SSS
